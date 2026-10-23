@@ -71,17 +71,9 @@ Run tests with `npm test`; it type-checks/builds the app and tests before runnin
 
 The GitHub Actions workflow at `.github/workflows/publish.yml` builds and tests TypeScript changes
 for pull requests. On pushes to `main`, it publishes both `dev` and `latest` tags (and an immutable
-commit-SHA tag) to `gcr.io/$GCP_PROJECT_ID/version-exporter`. Version tags (`v*`) publish a matching
-image tag. Container Registry was shut down in 2025; this `gcr.io` address must be served by
-Artifact Registry's `gcr.io` domain support.
+commit-SHA tag) to GitHub Container Registry at `ghcr.io/<owner>/version-exporter`. Version tags
+(`v*`) publish a matching image tag.
 
-Configure these GitHub repository settings:
-
-- Repository variable `GCP_PROJECT_ID`: Google Cloud project ID that owns the `gcr.io` registry.
-- Repository secret `GCP_WORKLOAD_IDENTITY_PROVIDER`: full Workload Identity Provider resource name.
-- Repository secret `GCP_SERVICE_ACCOUNT`: service account email allowed to push the image.
-
-Enable the Artifact Registry API and configure the project to serve its `gcr.io` domain through
-Artifact Registry. Configure Workload Identity Federation to trust this GitHub repository and grant
-the service account `roles/artifactregistry.writer` on the image repository. No service-account
-key is stored in GitHub.
+The workflow authenticates with its built-in `GITHUB_TOKEN`; no extra registry credentials or
+Google Cloud configuration are needed. The publish job has `packages: write` permission. Configure
+the package visibility in GitHub Packages as desired after its first publish.
