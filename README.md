@@ -26,6 +26,13 @@ CA, and reports tags from regular, init, and ephemeral container image reference
 are reported as `latest`. This target needs only the `list` verb on core `pods`; grant it through a
 read-only ClusterRole when running in Kubernetes.
 
+Set `"nodes": true` on a `kubernetes` target to also report each node's OS and kubelet (this needs
+`list` on core `nodes` too). Rows use the node name as `pod` and an empty `namespace`. Talos nodes report
+`container="talos"` as `ghcr.io/siderolabs/installer:<version>` and `container="kubelet"` as
+`ghcr.io/siderolabs/kubelet:<version>`; other distributions report only the kubelet, as
+`registry.k8s.io/kube-apiserver:<version>`. With `latest` enabled those resolve to the newest Talos and
+Kubernetes releases.
+
 The `docker` target lists the running containers of one Docker Engine through its API. `endpoint`
 defaults to `unix:///var/run/docker.sock`; `http://` and `https://` endpoints are also accepted, which
 is the recommended setup: put [docker-socket-proxy](https://github.com/Tecnativa/docker-socket-proxy)
@@ -53,6 +60,9 @@ registry.k8s.io and similar public registries work):
   node actually pulled (from the pod's container status) against the registry's current digest for
   that tag (a `HEAD` request, which doesn't count against Docker Hub's pull limit). An up-to-date image
   reports the tag itself; a stale one reports `<tag>@sha256:<first 12 hex>` of the newer build.
+- **Rebuilt version tags**: when a version tag is already the newest, its digest is compared the same
+  way, so a tag that was re-pushed (e.g. a base-image rebuild under the same version) shows as
+  `<tag>@sha256:<?>`. Set `checkDigests` to `floating` to skip this.
 
 Options:
 
@@ -69,6 +79,9 @@ Options:
   full reference matches are looked up in `repository` (no tag) instead, comparing tags only. Use this
   for mirrors or private rebuilds of a public image, e.g. mapping `^registry.lan:5000/gha-runner:` to
   `myoung34/github-runner`.
+- `checkDigests` (default `all`) ? `all` compares digests for floating tags and for version tags that
+  are already the newest; `floating` compares floating tags only. Upstream-mapped images are never
+  compared by digest.
 
 Registry lookups need outbound HTTPS access to the registries your images come from.
 
@@ -90,6 +103,10 @@ Set top-level `"push": { "url": "..." }` to also POST the metrics in Prometheus 
   metric on `system` and `image`.
 - `version_exporter_latest_lookups_total{target,system,result}` — registry repository lookups by outcome.
 - `version_exporter_pushes_total{system,result}` — metric pushes by outcome (only with `push`).
+
+Other tools can push rows in the same schema (`version_exporter_<name>_version` plus
+`version_exporter_image_latest` with matching `system` and `image`) for things the exporter can't
+discover itself, such as hypervisor or NAS platform versions, and they appear alongside.
 
 When Prometheus scrapes the exporter, enable `honor_labels` so the discovered `namespace`, `pod` and
 `container` labels are kept rather than renamed to `exported_*`.

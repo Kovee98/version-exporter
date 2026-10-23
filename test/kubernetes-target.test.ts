@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { discoverKubernetesImages, imageIdDigest, imageVersion } from "../src/kubernetes-target.js";
+import { discoverKubernetesImages, imageIdDigest, imageVersion, nodeVersions } from "../src/kubernetes-target.js";
 import type { HttpRequestOptions } from "../src/types.js";
 
 test("extracts image tags without confusing registry ports or digests", () => {
@@ -81,4 +81,45 @@ test("reads repo digests from container status image IDs", () => {
   assert.equal(imageIdDigest(`docker.io/library/nginx@${digest}`), digest);
   assert.equal(imageIdDigest(digest), undefined);
   assert.equal(imageIdDigest(undefined), undefined);
+});
+
+test("reports Talos and kubelet versions for nodes", () => {
+  assert.deepEqual(
+    nodeVersions({
+      metadata: { name: "cp-1" },
+      status: { nodeInfo: { osImage: "Talos (v1.14.4)", kubeletVersion: "v1.37.1" } },
+    }),
+    [
+      { version: "v1.14.4", namespace: "", pod: "cp-1", container: "talos", image: "ghcr.io/siderolabs/installer:v1.14.4" },
+      { version: "v1.37.1", namespace: "", pod: "cp-1", container: "kubelet", image: "ghcr.io/siderolabs/kubelet:v1.37.1" },
+    ],
+  );
+  assert.deepEqual(
+    nodeVersions({ metadata: { name: "w" }, status: { nodeInfo: { osImage: "Ubuntu 24.04", kubeletVersion: "v1.30.2+k3s1" } } }),
+    [{ version: "v1.30.2+k3s1", namespace: "", pod: "w", container: "kubelet", image: "registry.k8s.io/kube-apiserver:v1.30.2+k3s1" }],
+  );
+  assert.deepEqual(nodeVersions({ metadata: { name: "x" } }), []);
+});
+
+test("lists nodes only when enabled", async () => {
+  const paths: string[] = [];
+  const discover = (nodes: boolean) =>
+    discoverKubernetesImages({
+      timeoutMs: 1_000,
+      nodes,
+      environment: { KUBERNETES_SERVICE_HOST: "10.0.0.1" },
+      read: async () => "token",
+      requestJson: async (url) => {
+        const { pathname } = new URL(url);
+        paths.push(pathname);
+        return pathname.endsWith("/nodes")
+          ? { items: [{ metadata: { name: "n1" }, status: { nodeInfo: { osImage: "Talos (v1.14.4)", kubeletVersion: "v1.37.1" } } }] }
+          : { items: [] };
+      },
+    });
+
+  assert.equal((await discover(false)).length, 0);
+  assert.deepEqual(paths, ["/api/v1/pods"]);
+  assert.deepEqual((await discover(true)).map(({ container }) => container), ["talos", "kubelet"]);
+  assert.deepEqual(paths, ["/api/v1/pods", "/api/v1/pods", "/api/v1/nodes"]);
 });

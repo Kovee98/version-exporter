@@ -257,3 +257,54 @@ test("resolver looks up upstream repositories for mapped images and compares tag
   assert.deepEqual(listed, ["docker.io/myoung34/github-runner"]);
   assert.equal(digestLookups, 0);
 });
+
+test("resolver compares the newest version tag by digest when checkDigests is all", async () => {
+  const running = `sha256:${"1".repeat(64)}`;
+  const remote = `sha256:${"2".repeat(64)}`;
+  const lookups: string[] = [];
+  const options = {
+    ttlMs: 1_000,
+    timeoutMs: 1_000,
+    listTags: async () => ["1.0.0", "1.1.0"],
+    lookupDigest: async (_registry: string, repository: string, tag: string) => {
+      lookups.push(`${repository}:${tag}`);
+      return repository === "library/fresh" ? running : remote;
+    },
+  };
+  const images = [
+    { image: "fresh:1.1.0", digest: running },
+    { image: "rebuilt:1.1.0", digest: running },
+    { image: "older:1.0.0", digest: running },
+    { image: "nodigest:1.1.0" },
+  ];
+
+  const all = await new LatestVersionResolver({ ...options, checkDigests: "all" }).resolve(images);
+  assert.deepEqual(Object.fromEntries(all.latest), {
+    "fresh:1.1.0": "1.1.0",
+    "rebuilt:1.1.0": `1.1.0@sha256:${"2".repeat(12)}`,
+    "older:1.0.0": "1.1.0",
+    "nodigest:1.1.0": "1.1.0",
+  });
+  assert.deepEqual(lookups.sort(), ["library/fresh:1.1.0", "library/rebuilt:1.1.0"]);
+
+  lookups.length = 0;
+  const floating = await new LatestVersionResolver({ ...options, checkDigests: "floating" }).resolve(images);
+  assert.equal(floating.latest.get("rebuilt:1.1.0"), "1.1.0");
+  assert.deepEqual(lookups, []);
+});
+
+test("resolver keeps the tag result when the digest check fails", async () => {
+  const resolver = new LatestVersionResolver({
+    ttlMs: 1_000,
+    timeoutMs: 1_000,
+    checkDigests: "all",
+    listTags: async () => ["1.1.0"],
+    lookupDigest: async () => {
+      throw new Error("boom");
+    },
+    logger: { error() {} },
+  });
+  const result = await resolver.resolve([{ image: "app:1.1.0", digest: `sha256:${"1".repeat(64)}` }]);
+  assert.equal(result.latest.get("app:1.1.0"), "1.1.0");
+  assert.equal(result.failures, 1);
+});

@@ -71,6 +71,7 @@ const schema: AnySchema = {
           url: { type: "string", minLength: 1 },
           jsonpath: { type: "string", minLength: 1 },
           endpoint: { type: "string", minLength: 1 },
+          nodes: { type: "boolean" },
           every: { type: "string" },
           timeout: { type: "string" },
           retries: { type: "integer", minimum: 0, maximum: 10 },
@@ -83,6 +84,7 @@ const schema: AnySchema = {
               concurrency: { type: "integer", minimum: 1, maximum: 16 },
               exclude: { type: "array", items: { type: "string", minLength: 1 } },
               ignoreTags: { type: "array", items: { type: "string", minLength: 1 } },
+              checkDigests: { enum: ["all", "floating"] },
               upstreams: {
                 type: "array",
                 items: {
@@ -109,11 +111,15 @@ const schema: AnySchema = {
           },
           {
             if: { properties: { type: { const: "http" } }, required: ["type"] },
-            then: { not: { anyOf: [{ required: ["latest"] }, { required: ["endpoint"] }] } },
+            then: { not: { anyOf: [{ required: ["latest"] }, { required: ["endpoint"] }, { required: ["nodes"] }] } },
           },
           {
             if: { properties: { type: { const: "kubernetes" } }, required: ["type"] },
             then: { not: { required: ["endpoint"] } },
+          },
+          {
+            if: { properties: { type: { const: "docker" } }, required: ["type"] },
+            then: { not: { required: ["nodes"] } },
           },
         ],
       },
@@ -222,7 +228,7 @@ export function validateConfig(value: unknown): ExporterConfig {
       } satisfies HttpTarget;
     }
 
-    const { latest: latestInput, ...imageBase } = configuredBase;
+    const { latest: latestInput, nodes, ...imageBase } = configuredBase;
     let latest: LatestLookupConfig | undefined;
     if (latestInput) {
       latest = {
@@ -231,6 +237,7 @@ export function validateConfig(value: unknown): ExporterConfig {
         exclude: latestInput.exclude ?? [],
         ignoreTags: latestInput.ignoreTags ?? [],
         upstreams: latestInput.upstreams ?? [],
+        checkDigests: latestInput.checkDigests ?? "all",
       };
       parseDuration(latest.every, `targets.${target.name}.latest.every`);
       for (const { repository } of latest.upstreams) {
@@ -258,7 +265,12 @@ export function validateConfig(value: unknown): ExporterConfig {
       dockerEndpoint(endpoint, target.name);
       return { ...imageBase, type: "docker", endpoint, ...(latest ? { latest } : {}) } satisfies DockerTarget;
     }
-    return { ...imageBase, type: "kubernetes", ...(latest ? { latest } : {}) } satisfies KubernetesTarget;
+    return {
+      ...imageBase,
+      type: "kubernetes",
+      nodes: nodes ?? false,
+      ...(latest ? { latest } : {}),
+    } satisfies KubernetesTarget;
   });
 
   let push: PushConfig | undefined;

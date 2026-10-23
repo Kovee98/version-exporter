@@ -37,10 +37,17 @@ export interface LatestLookupConfig {
   exclude: string[];
   ignoreTags: string[];
   upstreams: Array<{ match: string; repository: string }>;
+  /**
+   * `all` also compares digests when the running version tag is already the newest, so a rebuilt tag
+   * (e.g. `postgres:17.6` re-pushed with OS updates) is reported; `floating` only checks number-less tags.
+   */
+  checkDigests: "all" | "floating";
 }
 
 export interface KubernetesTargetInput extends TargetInputBase {
   type: "kubernetes";
+  /** Also report each node's Talos and kubelet versions. Needs `list` on core `nodes`. */
+  nodes?: boolean;
   url?: never;
   jsonpath?: never;
   latest?: Partial<LatestLookupConfig>;
@@ -50,6 +57,7 @@ export interface DockerTargetInput extends TargetInputBase {
   type: "docker";
   /** Docker Engine API endpoint: `unix:///var/run/docker.sock` (default) or `http(s)://host:port` (e.g. a socket proxy). */
   endpoint?: string;
+  nodes?: never;
   url?: never;
   jsonpath?: never;
   latest?: Partial<LatestLookupConfig>;
@@ -75,6 +83,7 @@ export interface HttpTarget extends ConfiguredTargetBase {
 
 export interface KubernetesTarget extends ConfiguredTargetBase {
   type: "kubernetes";
+  nodes: boolean;
   latest?: LatestLookupConfig;
 }
 
@@ -153,6 +162,16 @@ export interface KubernetesPod {
 export interface PodContainerStatus {
   name?: string;
   imageID?: string;
+}
+
+export interface KubernetesNode {
+  metadata?: { name?: string };
+  status?: { nodeInfo?: { osImage?: string; kubeletVersion?: string } };
+}
+
+export interface KubernetesNodeList {
+  metadata?: { continue?: string };
+  items: KubernetesNode[];
 }
 
 export interface KubernetesPodList {

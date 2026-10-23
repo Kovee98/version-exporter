@@ -1,6 +1,13 @@
 import { readFile } from "node:fs/promises";
 import { requestJson } from "./http.js";
-import type { JsonRequester, KubernetesPod, KubernetesPodList, VersionResult } from "./types.js";
+import type {
+  JsonRequester,
+  KubernetesNode,
+  KubernetesNodeList,
+  KubernetesPod,
+  KubernetesPodList,
+  VersionResult,
+} from "./types.js";
 
 const SERVICE_ACCOUNT_DIR = "/var/run/secrets/kubernetes.io/serviceaccount";
 const POD_PAGE_SIZE = 50;
@@ -9,6 +16,8 @@ const POD_PAGE_MAX_BYTES = 16 * 1_048_576;
 
 export interface KubernetesDiscoveryOptions {
   timeoutMs: number;
+  /** Also report each node's Talos and kubelet versions. */
+  nodes?: boolean;
   requestJson?: JsonRequester;
   environment?: NodeJS.ProcessEnv;
   read?: (path: string, encoding?: BufferEncoding) => Promise<string | Buffer>;
@@ -57,6 +66,29 @@ function podImages(pod: KubernetesPod): VersionResult[] {
   });
 }
 
+const TALOS_OS_IMAGE = /^Talos \((v\d[^)\s]*)\)$/;
+
+/**
+ * Reports a node's OS and kubelet as image references so the registry lookup finds their newest
+ * versions: Talos nodes map to `ghcr.io/siderolabs/installer` and `ghcr.io/siderolabs/kubelet`, other
+ * distributions report only the Kubernetes version (as `registry.k8s.io/kube-apiserver`).
+ */
+export function nodeVersions(node: KubernetesNode): VersionResult[] {
+  const name = node.metadata?.name ?? "";
+  const info = node.status?.nodeInfo ?? {};
+  const results: VersionResult[] = [];
+  const talos = TALOS_OS_IMAGE.exec(info.osImage ?? "")?.[1];
+  if (talos) {
+    results.push({ version: talos, namespace: "", pod: name, container: "talos", image: `ghcr.io/siderolabs/installer:${talos}` });
+  }
+  const kubelet = info.kubeletVersion;
+  if (kubelet && /^v\d/.test(kubelet)) {
+    const repository = talos ? "ghcr.io/siderolabs/kubelet" : "registry.k8s.io/kube-apiserver";
+    results.push({ version: kubelet, namespace: "", pod: name, container: "kubelet", image: `${repository}:${kubelet}` });
+  }
+  return results;
+}
+
 /** Extracts the repo digest from a container status imageID like "docker.io/library/nginx@sha256:...". */
 export function imageIdDigest(imageID: unknown): string | undefined {
   if (typeof imageID !== "string") return undefined;
@@ -66,6 +98,7 @@ export function imageIdDigest(imageID: unknown): string | undefined {
 
 export async function discoverKubernetesImages({
   timeoutMs,
+  nodes = false,
   requestJson: request = requestJson,
   environment = process.env,
   read = async (path, encoding) => readFile(path, encoding),
@@ -95,32 +128,48 @@ export async function discoverKubernetesImages({
     });
   }
 
-  const apiUrl = new URL(`https://${host}:${port}/api/v1/pods`);
-  apiUrl.searchParams.set("limit", String(POD_PAGE_SIZE));
-  const images = [];
-  let continueToken;
+  const list = async <T extends { items: unknown[]; metadata?: { continue?: string } }>(
+    resource: string,
+    isList: (value: unknown) => value is T,
+  ): Promise<T["items"]> => {
+    const apiUrl = new URL(`https://${host}:${port}/api/v1/${resource}`);
+    apiUrl.searchParams.set("limit", String(POD_PAGE_SIZE));
+    const items: T["items"] = [];
+    let continueToken;
+    do {
+      if (continueToken) {
+        apiUrl.searchParams.set("continue", continueToken);
+      }
+      const page = await request(apiUrl, {
+        timeoutMs,
+        headers: { authorization: `Bearer ${token.trim()}` },
+        ca,
+        maxResponseBytes: POD_PAGE_MAX_BYTES,
+      });
+      if (!isList(page)) {
+        throw new Error(`Kubernetes API response did not contain a ${resource} list`);
+      }
+      items.push(...page.items);
+      continueToken = page.metadata?.continue || undefined;
+    } while (continueToken);
+    return items;
+  };
 
-  do {
-    if (continueToken) {
-      apiUrl.searchParams.set("continue", continueToken);
-    }
-
-    const page = await request(apiUrl, {
-      timeoutMs,
-      headers: { authorization: `Bearer ${token.trim()}` },
-      ca,
-      maxResponseBytes: POD_PAGE_MAX_BYTES,
-    });
-    if (!isKubernetesPodList(page)) {
-      throw new Error("Kubernetes API response did not contain a pod list");
-    }
-    for (const pod of page.items) {
-      images.push(...podImages(pod));
-    }
-    continueToken = page.metadata?.continue || undefined;
-  } while (continueToken);
-
+  const images = (await list("pods", isKubernetesPodList)).flatMap(podImages);
+  if (nodes) {
+    images.push(...(await list("nodes", isKubernetesNodeList)).flatMap(nodeVersions));
+  }
   return images;
+}
+
+function isKubernetesNodeList(value: unknown): value is KubernetesNodeList {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "items" in value &&
+    Array.isArray(value.items) &&
+    value.items.every((node) => typeof node === "object" && node !== null)
+  );
 }
 
 function isKubernetesPodList(value: unknown): value is KubernetesPodList {

@@ -249,7 +249,7 @@ export interface LatestLookupResult {
 interface TagJob {
   reference: ImageReference;
   last: string;
-  images: Array<{ key: string; image: string; tag: string }>;
+  images: Array<{ key: string; image: string; tag: string; digests: string[] }>;
 }
 
 interface DigestJob {
@@ -276,6 +276,8 @@ export class LatestVersionResolver {
       exclude?: RegExp[];
       ignoreTags?: RegExp[];
       upstreams?: UpstreamMapping[];
+      /** Defaults to `floating`: only number-less tags are compared by digest. */
+      checkDigests?: "all" | "floating";
       listTags?: TagLister;
       lookupDigest?: DigestLookup;
       logger?: Pick<Console, "error">;
@@ -323,7 +325,7 @@ export class LatestVersionResolver {
       if (version) {
         const jobKey = `${reference.registry}/${reference.repository}|${version.prefix}`;
         const job = tagJobs.get(jobKey) ?? { reference, last: version.prefix, images: [] };
-        job.images.push({ key, image, tag: reference.tag });
+        job.images.push({ key, image, tag: reference.tag, digests: comparableDigests });
         tagJobs.set(jobKey, job);
       } else if (comparableDigests.length > 0) {
         digestJobs.push({ key, image, reference, digests: comparableDigests });
@@ -349,10 +351,21 @@ export class LatestVersionResolver {
         } catch (error) {
           fail(repository, error);
         }
-        for (const { key, tag } of job.images) {
+        for (const { key, tag, digests } of job.images) {
+          let latest = tags ? newestMatchingTag(tag, tags, ignore) : undefined;
+          if (latest === tag && digests.length > 0 && this.options.checkDigests === "all") {
+            // Already the newest tag: a different registry digest means the tag was rebuilt since it was pulled.
+            const { registry, repository: name } = job.reference;
+            try {
+              const remote = await (this.options.lookupDigest ?? lookupManifestDigest)(registry, name, tag, this.options.timeoutMs);
+              if (!digests.every((digest) => digest === remote)) latest = newerBuildLabel(tag, remote);
+            } catch (error) {
+              fail(`${repository}:${tag}`, error);
+            }
+          }
           this.cache.set(key, {
             expiresAt: now + (tags ? this.options.ttlMs : failureTtl),
-            latest: tags ? newestMatchingTag(tag, tags, ignore) : undefined,
+            latest,
           });
         }
       }),

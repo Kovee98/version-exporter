@@ -34,8 +34,10 @@
       "type": "kubernetes",
       "group": "cluster-images",
       "every": "5m",
+      "nodes": true,
       "latest": {
         "every": "6h",
+        "checkDigests": "all",
         "ignoreTags": [
           "linuxserver/qbittorrent:(20\\.04\\.1|14\\.3\\.9)$"
         ]

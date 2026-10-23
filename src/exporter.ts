@@ -62,6 +62,7 @@ export class VersionExporter {
             exclude: target.latest.exclude.map((pattern) => new RegExp(pattern)),
             ignoreTags: target.latest.ignoreTags.map((pattern) => new RegExp(pattern)),
             upstreams: target.latest.upstreams.map(({ match, repository }) => ({ match: new RegExp(match), repository })),
+            checkDigests: target.latest.checkDigests,
             ...(listTags ? { listTags } : {}),
             ...(lookupDigest ? { lookupDigest } : {}),
             logger,
@@ -125,7 +126,7 @@ export class VersionExporter {
             ...(this.requestJson ? { requestJson: this.requestJson } : {}),
           });
         }
-        return (this.discoverImages ?? discoverKubernetesImages)({ timeoutMs });
+        return (this.discoverImages ?? discoverKubernetesImages)({ timeoutMs, nodes: target.nodes });
       });
       this.metrics.recordScrape(target, {
         success: true,
