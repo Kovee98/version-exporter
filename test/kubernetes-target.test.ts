@@ -51,6 +51,7 @@ test("discovers images from all paginated Kubernetes pod results", async () => {
   assert.ok(firstRequest);
   assert.ok(secondRequest);
   assert.equal(firstRequest.options.headers?.authorization, "Bearer token");
+  assert.equal(firstRequest.url.searchParams.get("limit"), "50");
   assert.equal(secondRequest.url.searchParams.get("continue"), "page-2");
   assert.deepEqual(result.map(({ namespace, pod, container, version }) => ({
     namespace,

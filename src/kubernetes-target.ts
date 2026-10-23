@@ -3,6 +3,9 @@ import { requestJson } from "./http.js";
 import type { JsonRequester, KubernetesPod, KubernetesPodList, VersionResult } from "./types.js";
 
 const SERVICE_ACCOUNT_DIR = "/var/run/secrets/kubernetes.io/serviceaccount";
+const POD_PAGE_SIZE = 50;
+// Full pod objects (managedFields, env, volumes) can be tens of KB each.
+const POD_PAGE_MAX_BYTES = 16 * 1_048_576;
 
 export interface KubernetesDiscoveryOptions {
   timeoutMs: number;
@@ -74,6 +77,7 @@ export async function discoverKubernetesImages({
   }
 
   const apiUrl = new URL(`https://${host}:${port}/api/v1/pods`);
+  apiUrl.searchParams.set("limit", String(POD_PAGE_SIZE));
   const images = [];
   let continueToken;
 
@@ -86,6 +90,7 @@ export async function discoverKubernetesImages({
       timeoutMs,
       headers: { authorization: `Bearer ${token.trim()}` },
       ca,
+      maxResponseBytes: POD_PAGE_MAX_BYTES,
     });
     if (!isKubernetesPodList(page)) {
       throw new Error("Kubernetes API response did not contain a pod list");

@@ -2,9 +2,12 @@ import http from "node:http";
 import https from "node:https";
 import type { HttpRequestOptions, JsonRequester } from "./types.js";
 
-const MAX_RESPONSE_BYTES = 1_048_576;
+const DEFAULT_MAX_RESPONSE_BYTES = 1_048_576;
 
-export const requestJson: JsonRequester = (url, { timeoutMs, headers = {}, ca }: HttpRequestOptions) => {
+export const requestJson: JsonRequester = (
+  url,
+  { timeoutMs, headers = {}, ca, maxResponseBytes = DEFAULT_MAX_RESPONSE_BYTES }: HttpRequestOptions,
+) => {
   const parsedUrl = new URL(url);
   const transport = parsedUrl.protocol === "https:" ? https : http;
   if (!["http:", "https:"].includes(parsedUrl.protocol)) {
@@ -25,8 +28,8 @@ export const requestJson: JsonRequester = (url, { timeoutMs, headers = {}, ca }:
         response.setEncoding("utf8");
         response.on("data", (chunk) => {
           responseBytes += Buffer.byteLength(chunk);
-          if (responseBytes > MAX_RESPONSE_BYTES) {
-            response.destroy(new Error(`Response exceeded ${MAX_RESPONSE_BYTES} bytes`));
+          if (responseBytes > maxResponseBytes) {
+            response.destroy(new Error(`Response exceeded ${maxResponseBytes} bytes`));
             return;
           }
           body += chunk;

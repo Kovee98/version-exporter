@@ -81,6 +81,7 @@ export interface HttpRequestOptions {
   timeoutMs: number;
   headers?: Record<string, string>;
   ca?: string | Buffer;
+  maxResponseBytes?: number;
 }
 
 export type JsonRequester = (url: string | URL, options: HttpRequestOptions) => Promise<unknown>;
