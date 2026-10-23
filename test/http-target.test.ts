@@ -6,6 +6,7 @@ import type { HttpTarget } from "../src/types.js";
 const target: HttpTarget = {
   name: "example",
   label: "Example",
+  system: "test",
   type: "http",
   url: "https://example.com/version",
   jsonpath: "$.release.version",

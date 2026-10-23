@@ -5,6 +5,7 @@ import { ExporterMetrics } from "../src/metrics.js";
 
 test("exposes target version and scrape-health metrics", async () => {
   const config = validateConfig({
+    defaults: { system: "lab" },
     targets: [
       {
         name: "service",
@@ -37,8 +38,8 @@ test("exposes target version and scrape-health metrics", async () => {
   });
 
   const output = await metrics.registry.metrics();
-  assert.match(output, /version_exporter_service_version\{[^}]*version="1\.2\.3"[^}]*\} 1/);
-  assert.match(output, /version_exporter_target_up\{target="service"\} 0/);
-  assert.match(output, /version_exporter_target_scrapes_total\{target="service",result="success"\} 1/);
-  assert.match(output, /version_exporter_target_scrapes_total\{target="service",result="error"\} 1/);
+  assert.match(output, /version_exporter_service_version\{system="lab",[^}]*version="1\.2\.3"[^}]*\} 1/);
+  assert.match(output, /version_exporter_target_up\{target="service",system="lab"\} 0/);
+  assert.match(output, /version_exporter_target_scrapes_total\{target="service",system="lab",result="success"\} 1/);
+  assert.match(output, /version_exporter_target_scrapes_total\{target="service",system="lab",result="error"\} 1/);
 });

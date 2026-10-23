@@ -229,6 +229,12 @@ export function newerBuildLabel(tag: string, digest: string): string {
   return `${tag}@${digest.slice(0, "sha256:".length + 12)}`;
 }
 
+/** Looks up tags for images matching `match` in another repository (e.g. the base of a locally rebuilt image). */
+export interface UpstreamMapping {
+  match: RegExp;
+  repository: string;
+}
+
 interface CacheEntry {
   expiresAt: number;
   latest: string | undefined;
@@ -269,6 +275,7 @@ export class LatestVersionResolver {
       concurrency?: number;
       exclude?: RegExp[];
       ignoreTags?: RegExp[];
+      upstreams?: UpstreamMapping[];
       listTags?: TagLister;
       lookupDigest?: DigestLookup;
       logger?: Pick<Console, "error">;
@@ -298,7 +305,14 @@ export class LatestVersionResolver {
       const cached = this.cache.get(key);
       if (cached && now < cached.expiresAt) continue;
 
-      const reference = parseImageReference(image);
+      let reference = parseImageReference(image);
+      let comparableDigests = digests;
+      const upstream = reference && this.options.upstreams?.find(({ match }) => match.test(image));
+      if (reference && upstream) {
+        reference = parseImageReference(`${upstream.repository}:${reference.tag}`);
+        // A locally built image's digest never matches the upstream one, so compare tags only.
+        comparableDigests = [];
+      }
       const excluded = this.options.exclude?.some((pattern) => pattern.test(image)) ?? false;
       if (excluded || !reference) {
         this.cache.set(key, { expiresAt: now + this.options.ttlMs, latest: undefined });
@@ -311,8 +325,8 @@ export class LatestVersionResolver {
         const job = tagJobs.get(jobKey) ?? { reference, last: version.prefix, images: [] };
         job.images.push({ key, image, tag: reference.tag });
         tagJobs.set(jobKey, job);
-      } else if (digests.length > 0) {
-        digestJobs.push({ key, image, reference, digests });
+      } else if (comparableDigests.length > 0) {
+        digestJobs.push({ key, image, reference, digests: comparableDigests });
       } else {
         this.cache.set(key, { expiresAt: now + this.options.ttlMs, latest: undefined });
       }

@@ -1,7 +1,7 @@
 # version-exporter
 
 A small Node.js exporter that periodically reads application versions from JSON APIs or discovers
-container image tags from the Kubernetes API, then exposes the results for Prometheus. It has no
+container image tags from the Kubernetes or Docker API, then exposes the results for Prometheus. It has no
 database or dashboard; Prometheus stores the time series.
 
 ## Configuration
@@ -26,7 +26,19 @@ CA, and reports tags from regular, init, and ephemeral container image reference
 are reported as `latest`. This target needs only the `list` verb on core `pods`; grant it through a
 read-only ClusterRole when running in Kubernetes.
 
-Add `"latest": {}` to a `kubernetes` target to also look up the newest available version of each
+The `docker` target lists the running containers of one Docker Engine through its API. `endpoint`
+defaults to `unix:///var/run/docker.sock`; `http://` and `https://` endpoints are also accepted, which
+is the recommended setup: put [docker-socket-proxy](https://github.com/Tecnativa/docker-socket-proxy)
+with only `CONTAINERS=1` and `IMAGES=1` in front of the socket instead of mounting it into the
+exporter. Labels follow docker-compose: `namespace` is the compose project, `pod` the container name
+and `container` the compose service (or the container name outside compose). The pulled digest comes
+from the image's `RepoDigests`.
+
+Every series carries a `system` label naming where the workloads run (a cluster or host name). Set
+it with `defaults.system` or per target with `system`; it defaults to the machine's hostname, so a
+container started with `--uts=host` reports its host.
+
+Add `"latest": {}` to a `kubernetes` or `docker` target to also look up the newest available version of each
 running image, using the registry's v2 API with anonymous bearer tokens (Docker Hub, ghcr.io, quay.io,
 registry.k8s.io and similar public registries work):
 
@@ -53,21 +65,34 @@ Options:
   (Docker Hub images are normalized to `docker.io/library/<name>` or `docker.io/<org>/<name>`); matching
   candidate tags are never chosen as latest. Use this for repositories with stray legacy tags, e.g.
   `"linuxserver/qbittorrent:(20\\.04\\.1|14\\.3\\.9)$"`.
+- `upstreams` (default `[]`) — `{ "match": "<regex>", "repository": "<repo>" }` entries; images whose
+  full reference matches are looked up in `repository` (no tag) instead, comparing tags only. Use this
+  for mirrors or private rebuilds of a public image, e.g. mapping `^registry.lan:5000/gha-runner:` to
+  `myoung34/github-runner`.
 
 Registry lookups need outbound HTTPS access to the registries your images come from.
+
+Set top-level `"push": { "url": "..." }` to also POST the metrics in Prometheus text format to
+`url` every `every` (default `1m`, with a `timeout`, default `10s`) — for example VictoriaMetrics'
+`/api/v1/import/prometheus` — when nothing can scrape the exporter. Credentials in the URL are rejected.
 
 ## Metrics and endpoints
 
 - `GET /metrics` — Prometheus exposition format.
 - `GET /healthz` — process liveness check.
-- `version_exporter_<target_name>_version{label,version,...} 1` — current version for each target.
-- `version_exporter_target_up{target}` — whether the latest scrape succeeded.
-- `version_exporter_target_last_scrape_timestamp_seconds{target}` — timestamp of the latest attempt.
-- `version_exporter_target_scrape_duration_seconds{target}` — duration of the latest attempt.
-- `version_exporter_target_scrapes_total{target,result}` — scrape attempts by outcome.
-- `version_exporter_image_latest{target,image,latest_version} 1` — newest matching registry tag for a
-  running image (Kubernetes targets with `latest` enabled). Join it to the version metric on `image`.
-- `version_exporter_latest_lookups_total{target,result}` — registry repository lookups by outcome.
+- `version_exporter_<target_name>_version{system,label,version,...} 1` — current version for each target.
+- `version_exporter_target_up{target,system}` — whether the latest scrape succeeded.
+- `version_exporter_target_last_scrape_timestamp_seconds{target,system}` — timestamp of the latest attempt.
+- `version_exporter_target_scrape_duration_seconds{target,system}` — duration of the latest attempt.
+- `version_exporter_target_scrapes_total{target,system,result}` — scrape attempts by outcome.
+- `version_exporter_image_latest{target,system,image,latest_version} 1` — newest matching registry tag
+  for a running image (Kubernetes and Docker targets with `latest` enabled). Join it to the version
+  metric on `system` and `image`.
+- `version_exporter_latest_lookups_total{target,system,result}` — registry repository lookups by outcome.
+- `version_exporter_pushes_total{system,result}` — metric pushes by outcome (only with `push`).
+
+When Prometheus scrapes the exporter, enable `honor_labels` so the discovered `namespace`, `pod` and
+`container` labels are kept rather than renamed to `exported_*`.
 
 Target names are normalized to lowercase Prometheus metric-name suffixes. Names that normalize to
 the same metric are rejected during startup.
@@ -84,7 +109,8 @@ npm start
 ```
 
 Set `PORT` to change the metrics port (default `9090`). Kubernetes discovery is available only
-inside a pod with the service-account token and CA mounted.
+inside a pod with the service-account token and CA mounted; Docker discovery needs access to a
+Docker API endpoint.
 
 ## Container
 
@@ -104,7 +130,7 @@ Run tests with `npm test`; it type-checks/builds the app and tests before runnin
 
 The GitHub Actions workflow at `.github/workflows/publish.yml` builds and tests TypeScript changes
 for pull requests. On pushes to `main`, it publishes both `dev` and `latest` tags (and an immutable
-commit-SHA tag) to GitHub Container Registry at `ghcr.io/<owner>/version-exporter`. Version tags
+commit-SHA tag) for `linux/amd64` and `linux/arm64` to GitHub Container Registry at `ghcr.io/<owner>/version-exporter`. Version tags
 (`v*`) publish a matching image tag.
 
 The workflow authenticates with its built-in `GITHUB_TOKEN`; no extra registry credentials or

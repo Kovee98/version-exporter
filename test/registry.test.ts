@@ -232,3 +232,28 @@ test("resolver retries failed lookups before the success TTL expires", async () 
   now = 60 * 60_000;
   assert.equal((await resolver.resolve(["app:1.0"])).lookups, 0);
 });
+
+test("resolver looks up upstream repositories for mapped images and compares tags only", async () => {
+  const listed: string[] = [];
+  let digestLookups = 0;
+  const resolver = new LatestVersionResolver({
+    ttlMs: 60_000,
+    timeoutMs: 1_000,
+    upstreams: [{ match: /^192\.168\.1\.21:5000\/homelab\/gha-runner:/, repository: "myoung34/github-runner" }],
+    listTags: async (registry, repository) => {
+      listed.push(`${registry}/${repository}`);
+      return ["2.337.0", "2.338.1", "latest"];
+    },
+    lookupDigest: async () => {
+      digestLookups += 1;
+      return `sha256:${"f".repeat(64)}`;
+    },
+  });
+
+  const { latest } = await resolver.resolve([
+    { image: "192.168.1.21:5000/homelab/gha-runner:2.337.0", digest: `sha256:${"a".repeat(64)}` },
+  ]);
+  assert.equal(latest.get("192.168.1.21:5000/homelab/gha-runner:2.337.0"), "2.338.1");
+  assert.deepEqual(listed, ["docker.io/myoung34/github-runner"]);
+  assert.equal(digestLookups, 0);
+});

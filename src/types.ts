@@ -1,4 +1,6 @@
 export interface ConfigDefaults {
+  /** Value of the `system` label (cluster, host or appliance the versions belong to). */
+  system: string;
   every: string;
   timeout: string;
   retries: number;
@@ -15,6 +17,7 @@ export interface GroupConfig {
 interface TargetInputBase {
   name: string;
   label: string;
+  system?: string;
   group?: string;
   every?: string;
   timeout?: string;
@@ -33,6 +36,7 @@ export interface LatestLookupConfig {
   concurrency: number;
   exclude: string[];
   ignoreTags: string[];
+  upstreams: Array<{ match: string; repository: string }>;
 }
 
 export interface KubernetesTargetInput extends TargetInputBase {
@@ -42,9 +46,19 @@ export interface KubernetesTargetInput extends TargetInputBase {
   latest?: Partial<LatestLookupConfig>;
 }
 
-export type TargetInput = HttpTargetInput | KubernetesTargetInput;
+export interface DockerTargetInput extends TargetInputBase {
+  type: "docker";
+  /** Docker Engine API endpoint: `unix:///var/run/docker.sock` (default) or `http(s)://host:port` (e.g. a socket proxy). */
+  endpoint?: string;
+  url?: never;
+  jsonpath?: never;
+  latest?: Partial<LatestLookupConfig>;
+}
+
+export type TargetInput = HttpTargetInput | KubernetesTargetInput | DockerTargetInput;
 
 interface ConfiguredTargetBase extends TargetInputBase {
+  system: string;
   metricName: string;
   group: string;
   every: string;
@@ -64,18 +78,33 @@ export interface KubernetesTarget extends ConfiguredTargetBase {
   latest?: LatestLookupConfig;
 }
 
-export type ConfiguredTarget = HttpTarget | KubernetesTarget;
+export interface DockerTarget extends ConfiguredTargetBase {
+  type: "docker";
+  endpoint: string;
+  latest?: LatestLookupConfig;
+}
+
+export type ConfiguredTarget = HttpTarget | KubernetesTarget | DockerTarget;
+
+export interface PushConfig {
+  /** VictoriaMetrics `/api/v1/import/prometheus` (or any endpoint accepting the Prometheus text format). */
+  url: string;
+  every: string;
+  timeout: string;
+}
 
 export interface ConfigInput {
   defaults?: Partial<ConfigDefaults>;
   groups?: Array<Pick<GroupConfig, "name" | "mode"> & { concurrency?: number }>;
   targets: TargetInput[];
+  push?: Partial<PushConfig> & Pick<PushConfig, "url">;
 }
 
 export interface ExporterConfig {
   defaults: ConfigDefaults;
   groups: GroupConfig[];
   targets: ConfiguredTarget[];
+  push?: PushConfig;
 }
 
 export interface VersionResult {
@@ -93,6 +122,8 @@ export interface HttpRequestOptions {
   headers?: Record<string, string>;
   ca?: string | Buffer;
   maxResponseBytes?: number;
+  /** Unix domain socket to connect to instead of the URL's host (e.g. the Docker socket). */
+  socketPath?: string;
 }
 
 export type JsonRequester = (url: string | URL, options: HttpRequestOptions) => Promise<unknown>;

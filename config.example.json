@@ -1,5 +1,6 @@
 {
   "defaults": {
+    "system": "homelab",
     "every": "1h",
     "timeout": "10s",
     "retries": 2,
@@ -35,7 +36,26 @@
       "every": "5m",
       "latest": {
         "every": "6h",
-        "ignoreTags": ["linuxserver/qbittorrent:(20\\.04\\.1|14\\.3\\.9)$"]
+        "ignoreTags": [
+          "linuxserver/qbittorrent:(20\\.04\\.1|14\\.3\\.9)$"
+        ]
+      }
+    },
+    {
+      "name": "docker_containers",
+      "label": "Docker container image",
+      "type": "docker",
+      "group": "cluster-images",
+      "endpoint": "http://docker-socket-proxy:2375",
+      "every": "5m",
+      "latest": {
+        "every": "6h",
+        "upstreams": [
+          {
+            "match": "^registry\\.lan:5000/gha-runner:",
+            "repository": "myoung34/github-runner"
+          }
+        ]
       }
     }
   ]
