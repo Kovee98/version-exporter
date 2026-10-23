@@ -1,0 +1,38 @@
+{
+  "defaults": {
+    "every": "1h",
+    "timeout": "10s",
+    "retries": 2,
+    "backoff": "1s",
+    "concurrency": 4
+  },
+  "groups": [
+    {
+      "name": "external-apis",
+      "mode": "parallel",
+      "concurrency": 4
+    },
+    {
+      "name": "cluster-images",
+      "mode": "serial"
+    }
+  ],
+  "targets": [
+    {
+      "name": "example_service",
+      "label": "Example service",
+      "type": "http",
+      "group": "external-apis",
+      "url": "https://example.com/api/version",
+      "jsonpath": "$.version",
+      "every": "1h"
+    },
+    {
+      "name": "kubernetes_images",
+      "label": "Kubernetes container image",
+      "type": "kubernetes",
+      "group": "cluster-images",
+      "every": "5m"
+    }
+  ]
+}

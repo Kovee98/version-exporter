@@ -1,0 +1,110 @@
+export interface ConfigDefaults {
+  every: string;
+  timeout: string;
+  retries: number;
+  backoff: string;
+  concurrency: number;
+}
+
+export interface GroupConfig {
+  name: string;
+  mode: "serial" | "parallel";
+  concurrency: number;
+}
+
+interface TargetInputBase {
+  name: string;
+  label: string;
+  group?: string;
+  every?: string;
+  timeout?: string;
+  retries?: number;
+  backoff?: string;
+}
+
+export interface HttpTargetInput extends TargetInputBase {
+  type: "http";
+  url: string;
+  jsonpath: string;
+}
+
+export interface KubernetesTargetInput extends TargetInputBase {
+  type: "kubernetes";
+  url?: never;
+  jsonpath?: never;
+}
+
+export type TargetInput = HttpTargetInput | KubernetesTargetInput;
+
+interface ConfiguredTargetBase extends TargetInputBase {
+  metricName: string;
+  group: string;
+  every: string;
+  timeout: string;
+  retries: number;
+  backoff: string;
+}
+
+export interface HttpTarget extends ConfiguredTargetBase {
+  type: "http";
+  url: string;
+  jsonpath: string;
+}
+
+export interface KubernetesTarget extends ConfiguredTargetBase {
+  type: "kubernetes";
+}
+
+export type ConfiguredTarget = HttpTarget | KubernetesTarget;
+
+export interface ConfigInput {
+  defaults?: Partial<ConfigDefaults>;
+  groups?: Array<Pick<GroupConfig, "name" | "mode"> & { concurrency?: number }>;
+  targets: TargetInput[];
+}
+
+export interface ExporterConfig {
+  defaults: ConfigDefaults;
+  groups: GroupConfig[];
+  targets: ConfiguredTarget[];
+}
+
+export interface VersionResult {
+  version: string;
+  namespace: string;
+  pod: string;
+  container: string;
+  image: string;
+}
+
+export interface HttpRequestOptions {
+  timeoutMs: number;
+  headers?: Record<string, string>;
+  ca?: string | Buffer;
+}
+
+export type JsonRequester = (url: string | URL, options: HttpRequestOptions) => Promise<unknown>;
+
+export interface PodContainer {
+  name?: string;
+  image?: string;
+}
+
+export interface KubernetesPod {
+  metadata?: {
+    namespace?: string;
+    name?: string;
+  };
+  spec?: {
+    initContainers?: PodContainer[];
+    containers?: PodContainer[];
+    ephemeralContainers?: PodContainer[];
+  };
+}
+
+export interface KubernetesPodList {
+  metadata?: {
+    continue?: string;
+  };
+  items: KubernetesPod[];
+}
