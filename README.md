@@ -26,6 +26,22 @@ CA, and reports tags from regular, init, and ephemeral container image reference
 are reported as `latest`. This target needs only the `list` verb on core `pods`; grant it through a
 read-only ClusterRole when running in Kubernetes.
 
+Add `"latest": {}` to a `kubernetes` target to also look up the newest available tag for each running
+image. The exporter lists the image repository's tags through the registry's v2 API (anonymous
+bearer tokens, so Docker Hub, ghcr.io, quay.io, registry.k8s.io and similar public registries work)
+and picks the highest tag with the same shape as the running one: same `v` prefix, same number of
+version components, and same suffix. For example, `16.4-alpine` can resolve to `17.0-alpine`, but not
+to `17` or `17.0-bookworm`. Tags that aren't versions (`latest`, commit hashes) and tags whose suffix
+contains its own version number (`-rc1`, `-ls270`) are skipped. Options:
+
+- `every` (default `6h`) — how long a repository's result is cached before it is looked up again.
+- `concurrency` (default `4`) — parallel registry lookups.
+- `exclude` (default `[]`) — regular expressions matched against the full image reference; matching
+  images are never looked up. Use this for repositories whose tag history isn't monotonic (e.g.
+  `"linuxserver/qbittorrent"`, which once used Ubuntu-numbered tags like `20.04.1`).
+
+Registry lookups need outbound HTTPS access to the registries your images come from.
+
 ## Metrics and endpoints
 
 - `GET /metrics` — Prometheus exposition format.
@@ -35,6 +51,9 @@ read-only ClusterRole when running in Kubernetes.
 - `version_exporter_target_last_scrape_timestamp_seconds{target}` — timestamp of the latest attempt.
 - `version_exporter_target_scrape_duration_seconds{target}` — duration of the latest attempt.
 - `version_exporter_target_scrapes_total{target,result}` — scrape attempts by outcome.
+- `version_exporter_image_latest{target,image,latest_version} 1` — newest matching registry tag for a
+  running image (Kubernetes targets with `latest` enabled). Join it to the version metric on `image`.
+- `version_exporter_latest_lookups_total{target,result}` — registry repository lookups by outcome.
 
 Target names are normalized to lowercase Prometheus metric-name suffixes. Names that normalize to
 the same metric are rejected during startup.

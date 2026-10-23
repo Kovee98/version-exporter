@@ -9,6 +9,7 @@ import type {
   GroupConfig,
   HttpTarget,
   KubernetesTarget,
+  LatestLookupConfig,
   TargetInput,
 } from "./types.js";
 
@@ -58,6 +59,15 @@ const schema: AnySchema = {
           timeout: { type: "string" },
           retries: { type: "integer", minimum: 0, maximum: 10 },
           backoff: { type: "string" },
+          latest: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              every: { type: "string" },
+              concurrency: { type: "integer", minimum: 1, maximum: 16 },
+              exclude: { type: "array", items: { type: "string", minLength: 1 } },
+            },
+          },
         },
         allOf: [
           {
@@ -67,6 +77,10 @@ const schema: AnySchema = {
           {
             if: { properties: { type: { const: "kubernetes" } }, required: ["type"] },
             then: { not: { anyOf: [{ required: ["url"] }, { required: ["jsonpath"] }] } },
+          },
+          {
+            if: { properties: { type: { const: "http" } }, required: ["type"] },
+            then: { not: { required: ["latest"] } },
           },
         ],
       },
@@ -173,7 +187,24 @@ export function validateConfig(value: unknown): ExporterConfig {
       } satisfies HttpTarget;
     }
 
-    return { ...configuredBase, type: "kubernetes" } satisfies KubernetesTarget;
+    const { latest: latestInput, ...kubernetesBase } = configuredBase;
+    let latest: LatestLookupConfig | undefined;
+    if (latestInput) {
+      latest = {
+        every: latestInput.every ?? "6h",
+        concurrency: latestInput.concurrency ?? 4,
+        exclude: latestInput.exclude ?? [],
+      };
+      parseDuration(latest.every, `targets.${target.name}.latest.every`);
+      for (const pattern of latest.exclude) {
+        try {
+          new RegExp(pattern);
+        } catch {
+          throw new Error(`Target "${target.name}" has an invalid latest.exclude pattern "${pattern}"`);
+        }
+      }
+    }
+    return { ...kubernetesBase, type: "kubernetes", ...(latest ? { latest } : {}) } satisfies KubernetesTarget;
   });
 
   return { defaults, groups: [...groups.values()], targets };

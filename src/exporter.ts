@@ -3,12 +3,14 @@ import { scrapeHttpTarget } from "./http-target.js";
 import { discoverKubernetesImages } from "./kubernetes-target.js";
 import type { KubernetesDiscoveryOptions } from "./kubernetes-target.js";
 import { ExporterMetrics } from "./metrics.js";
+import { LatestVersionResolver, type TagLister } from "./registry.js";
 import { ScrapeScheduler } from "./scheduler.js";
 import type { ConfiguredTarget, ExporterConfig, JsonRequester, VersionResult } from "./types.js";
 
 interface ExporterOptions {
   requestJson?: JsonRequester;
   discoverImages?: (options: KubernetesDiscoveryOptions) => Promise<VersionResult[]>;
+  listTags?: TagLister;
   logger?: Pick<Console, "error">;
 }
 
@@ -17,13 +19,32 @@ export class VersionExporter {
   private readonly logger: Pick<Console, "error">;
   private readonly requestJson?: JsonRequester;
   private readonly discoverImages?: ExporterOptions["discoverImages"];
+  private readonly resolvers = new Map<string, LatestVersionResolver>();
   private readonly scheduler: ScrapeScheduler;
 
-  constructor(config: ExporterConfig, { requestJson, discoverImages, logger = console }: ExporterOptions = {}) {
+  constructor(
+    config: ExporterConfig,
+    { requestJson, discoverImages, listTags, logger = console }: ExporterOptions = {},
+  ) {
     this.metrics = new ExporterMetrics(config.targets);
     this.logger = logger;
     this.requestJson = requestJson;
     this.discoverImages = discoverImages;
+    for (const target of config.targets) {
+      if (target.type === "kubernetes" && target.latest) {
+        this.resolvers.set(
+          target.name,
+          new LatestVersionResolver({
+            ttlMs: parseDuration(target.latest.every, `targets.${target.name}.latest.every`),
+            timeoutMs: parseDuration(target.timeout, `targets.${target.name}.timeout`),
+            concurrency: target.latest.concurrency,
+            exclude: target.latest.exclude.map((pattern) => new RegExp(pattern)),
+            ...(listTags ? { listTags } : {}),
+            logger,
+          }),
+        );
+      }
+    }
     this.scheduler = new ScrapeScheduler(config, (target) => this.#scrape(target));
   }
 
@@ -59,6 +80,16 @@ export class VersionExporter {
         durationSeconds: (Date.now() - startedAt) / 1_000,
       });
       this.logger.error(`Scrape failed for target "${target.name}": ${errorMessage(error)}`);
+      return;
+    }
+
+    const resolver = this.resolvers.get(target.name);
+    if (resolver) {
+      try {
+        this.metrics.recordLatest(target, await resolver.resolve(versions.map(({ image }) => image)));
+      } catch (error) {
+        this.logger.error(`Latest-version lookup failed for target "${target.name}": ${errorMessage(error)}`);
+      }
     }
   }
 

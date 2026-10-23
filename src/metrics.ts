@@ -10,6 +10,9 @@ export class ExporterMetrics {
   private readonly lastScrape: Gauge<string>;
   private readonly scrapeDuration: Gauge<string>;
   private readonly scrapes: Counter<string>;
+  private readonly imageLatest: Gauge<string>;
+  private readonly latestLookups: Counter<string>;
+  private readonly latestImages = new Map<string, Map<string, string>>();
 
   constructor(targets: ConfiguredTarget[]) {
     this.registry = new Registry();
@@ -35,6 +38,18 @@ export class ExporterMetrics {
     this.scrapes = new Counter({
       name: "version_exporter_target_scrapes_total",
       help: "Number of target scrapes by outcome.",
+      labelNames: ["target", "result"],
+      registers: [this.registry],
+    });
+    this.imageLatest = new Gauge({
+      name: "version_exporter_image_latest",
+      help: "Newest registry tag with the same shape as a running image's tag.",
+      labelNames: ["target", "image", "latest_version"],
+      registers: [this.registry],
+    });
+    this.latestLookups = new Counter({
+      name: "version_exporter_latest_lookups_total",
+      help: "Number of registry repository tag lookups by outcome.",
       labelNames: ["target", "result"],
       registers: [this.registry],
     });
@@ -86,5 +101,21 @@ export class ExporterMetrics {
         );
       }
     }
+  }
+
+  recordLatest(
+    target: ConfiguredTarget,
+    { latest, failures, lookups }: { latest: Map<string, string>; failures: number; lookups: number },
+  ): void {
+    const previous = this.latestImages.get(target.name) ?? new Map<string, string>();
+    for (const [image, version] of previous) {
+      this.imageLatest.remove({ target: target.name, image, latest_version: version });
+    }
+    for (const [image, version] of latest) {
+      this.imageLatest.set({ target: target.name, image, latest_version: version }, 1);
+    }
+    this.latestImages.set(target.name, new Map(latest));
+    if (lookups - failures > 0) this.latestLookups.inc({ target: target.name, result: "success" }, lookups - failures);
+    if (failures > 0) this.latestLookups.inc({ target: target.name, result: "error" }, failures);
   }
 }

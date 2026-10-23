@@ -28,10 +28,17 @@ export interface HttpTargetInput extends TargetInputBase {
   jsonpath: string;
 }
 
+export interface LatestLookupConfig {
+  every: string;
+  concurrency: number;
+  exclude: string[];
+}
+
 export interface KubernetesTargetInput extends TargetInputBase {
   type: "kubernetes";
   url?: never;
   jsonpath?: never;
+  latest?: Partial<LatestLookupConfig>;
 }
 
 export type TargetInput = HttpTargetInput | KubernetesTargetInput;
@@ -53,6 +60,7 @@ export interface HttpTarget extends ConfiguredTargetBase {
 
 export interface KubernetesTarget extends ConfiguredTargetBase {
   type: "kubernetes";
+  latest?: LatestLookupConfig;
 }
 
 export type ConfiguredTarget = HttpTarget | KubernetesTarget;

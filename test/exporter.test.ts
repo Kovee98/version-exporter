@@ -69,3 +69,29 @@ test("retries failed scrapes and reports errors", async () => {
     await exporter.stop();
   }
 });
+
+test("publishes newest registry versions for Kubernetes images", async () => {
+  const exporter = new VersionExporter(
+    validateConfig({
+      defaults: { every: "1h", retries: 0 },
+      targets: [{ name: "images", label: "Images", type: "kubernetes", latest: { exclude: ["^skip:"] } }],
+    }),
+    {
+      discoverImages: async () => [
+        { version: "1.0", namespace: "prod", pod: "app-1", container: "app", image: "app:1.0" },
+        { version: "1.0", namespace: "prod", pod: "skip-1", container: "skip", image: "skip:1.0" },
+      ],
+      listTags: async () => ["1.0", "1.2"],
+    },
+  );
+  exporter.start();
+
+  try {
+    const metrics = await waitForMetrics(exporter, "version_exporter_image_latest{");
+    assert.match(metrics, /version_exporter_image_latest\{target="images",image="app:1.0",latest_version="1.2"\} 1/);
+    assert.doesNotMatch(metrics, /image="skip:1.0",latest_version/);
+    assert.match(metrics, /version_exporter_latest_lookups_total\{target="images",result="success"\} 1/);
+  } finally {
+    await exporter.stop();
+  }
+});
