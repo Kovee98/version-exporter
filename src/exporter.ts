@@ -3,7 +3,7 @@ import { scrapeHttpTarget } from "./http-target.js";
 import { discoverKubernetesImages } from "./kubernetes-target.js";
 import type { KubernetesDiscoveryOptions } from "./kubernetes-target.js";
 import { ExporterMetrics } from "./metrics.js";
-import { LatestVersionResolver, type TagLister } from "./registry.js";
+import { LatestVersionResolver, type DigestLookup, type TagLister } from "./registry.js";
 import { ScrapeScheduler } from "./scheduler.js";
 import type { ConfiguredTarget, ExporterConfig, JsonRequester, VersionResult } from "./types.js";
 
@@ -11,6 +11,7 @@ interface ExporterOptions {
   requestJson?: JsonRequester;
   discoverImages?: (options: KubernetesDiscoveryOptions) => Promise<VersionResult[]>;
   listTags?: TagLister;
+  lookupDigest?: DigestLookup;
   logger?: Pick<Console, "error">;
 }
 
@@ -24,7 +25,7 @@ export class VersionExporter {
 
   constructor(
     config: ExporterConfig,
-    { requestJson, discoverImages, listTags, logger = console }: ExporterOptions = {},
+    { requestJson, discoverImages, listTags, lookupDigest, logger = console }: ExporterOptions = {},
   ) {
     this.metrics = new ExporterMetrics(config.targets);
     this.logger = logger;
@@ -39,7 +40,9 @@ export class VersionExporter {
             timeoutMs: parseDuration(target.timeout, `targets.${target.name}.timeout`),
             concurrency: target.latest.concurrency,
             exclude: target.latest.exclude.map((pattern) => new RegExp(pattern)),
+            ignoreTags: target.latest.ignoreTags.map((pattern) => new RegExp(pattern)),
             ...(listTags ? { listTags } : {}),
+            ...(lookupDigest ? { lookupDigest } : {}),
             logger,
           }),
         );
@@ -86,7 +89,7 @@ export class VersionExporter {
     const resolver = this.resolvers.get(target.name);
     if (resolver) {
       try {
-        this.metrics.recordLatest(target, await resolver.resolve(versions.map(({ image }) => image)));
+        this.metrics.recordLatest(target, await resolver.resolve(versions));
       } catch (error) {
         this.logger.error(`Latest-version lookup failed for target "${target.name}": ${errorMessage(error)}`);
       }

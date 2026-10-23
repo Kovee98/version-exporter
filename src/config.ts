@@ -66,6 +66,7 @@ const schema: AnySchema = {
               every: { type: "string" },
               concurrency: { type: "integer", minimum: 1, maximum: 16 },
               exclude: { type: "array", items: { type: "string", minLength: 1 } },
+              ignoreTags: { type: "array", items: { type: "string", minLength: 1 } },
             },
           },
         },
@@ -194,13 +195,16 @@ export function validateConfig(value: unknown): ExporterConfig {
         every: latestInput.every ?? "6h",
         concurrency: latestInput.concurrency ?? 4,
         exclude: latestInput.exclude ?? [],
+        ignoreTags: latestInput.ignoreTags ?? [],
       };
       parseDuration(latest.every, `targets.${target.name}.latest.every`);
-      for (const pattern of latest.exclude) {
-        try {
-          new RegExp(pattern);
-        } catch {
-          throw new Error(`Target "${target.name}" has an invalid latest.exclude pattern "${pattern}"`);
+      for (const [option, patterns] of [["exclude", latest.exclude], ["ignoreTags", latest.ignoreTags]] as const) {
+        for (const pattern of patterns) {
+          try {
+            new RegExp(pattern);
+          } catch {
+            throw new Error(`Target "${target.name}" has an invalid latest.${option} pattern "${pattern}"`);
+          }
         }
       }
     }

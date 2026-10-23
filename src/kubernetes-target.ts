@@ -23,6 +23,7 @@ export function imageVersion(image: string): string {
 
 function podImages(pod: KubernetesPod): VersionResult[] {
   const spec = pod.spec ?? {};
+  const status = pod.status ?? {};
   const namespace = pod.metadata?.namespace ?? "";
   const podName = pod.metadata?.name ?? "";
   const containers = [
@@ -30,19 +31,37 @@ function podImages(pod: KubernetesPod): VersionResult[] {
     ...(spec.containers ?? []),
     ...(spec.ephemeralContainers ?? []),
   ];
+  const digests = new Map<string, string>();
+  for (const containerStatus of [
+    ...(Array.isArray(status.initContainerStatuses) ? status.initContainerStatuses : []),
+    ...(Array.isArray(status.containerStatuses) ? status.containerStatuses : []),
+    ...(Array.isArray(status.ephemeralContainerStatuses) ? status.ephemeralContainerStatuses : []),
+  ]) {
+    const digest = imageIdDigest(containerStatus?.imageID);
+    if (typeof containerStatus?.name === "string" && digest) digests.set(containerStatus.name, digest);
+  }
 
   return containers.flatMap((container) => {
     if (typeof container.image !== "string" || container.image.length === 0) {
       return [];
     }
+    const digest = digests.get(container.name ?? "");
     return [{
       version: imageVersion(container.image),
       namespace,
       pod: podName,
       container: container.name ?? "",
       image: container.image,
+      ...(digest ? { digest } : {}),
     }];
   });
+}
+
+/** Extracts the repo digest from a container status imageID like "docker.io/library/nginx@sha256:...". */
+export function imageIdDigest(imageID: unknown): string | undefined {
+  if (typeof imageID !== "string") return undefined;
+  const match = /@(sha256:[0-9a-f]{64})$/.exec(imageID);
+  return match?.[1];
 }
 
 export async function discoverKubernetesImages({

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { discoverKubernetesImages, imageVersion } from "../src/kubernetes-target.js";
+import { discoverKubernetesImages, imageIdDigest, imageVersion } from "../src/kubernetes-target.js";
 import type { HttpRequestOptions } from "../src/types.js";
 
 test("extracts image tags without confusing registry ports or digests", () => {
@@ -29,6 +29,9 @@ test("discovers images from all paginated Kubernetes pod results", async () => {
             {
               metadata: { namespace: "prod", name: "app-1" },
               spec: { containers: [{ name: "app", image: "ghcr.io/team/app:v1" }] },
+              status: {
+                containerStatuses: [{ name: "app", imageID: `ghcr.io/team/app@sha256:${"d".repeat(64)}` }],
+              },
             },
           ],
         };
@@ -62,6 +65,8 @@ test("discovers images from all paginated Kubernetes pod results", async () => {
     { namespace: "prod", pod: "app-1", container: "app", version: "v1" },
     { namespace: "prod", pod: "app-2", container: "init", version: "1.36" },
   ]);
+  assert.equal(result[0]?.digest, `sha256:${"d".repeat(64)}`);
+  assert.equal(result[1]?.digest, undefined);
 });
 
 test("fails with a clear error when not running in Kubernetes", async () => {
@@ -69,4 +74,11 @@ test("fails with a clear error when not running in Kubernetes", async () => {
     discoverKubernetesImages({ timeoutMs: 1_000, environment: {} }),
     /KUBERNETES_SERVICE_HOST/,
   );
+});
+
+test("reads repo digests from container status image IDs", () => {
+  const digest = `sha256:${"e".repeat(64)}`;
+  assert.equal(imageIdDigest(`docker.io/library/nginx@${digest}`), digest);
+  assert.equal(imageIdDigest(digest), undefined);
+  assert.equal(imageIdDigest(undefined), undefined);
 });

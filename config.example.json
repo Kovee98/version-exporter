@@ -35,7 +35,7 @@
       "every": "5m",
       "latest": {
         "every": "6h",
-        "exclude": ["linuxserver/qbittorrent"]
+        "ignoreTags": ["linuxserver/qbittorrent:(20\\.04\\.1|14\\.3\\.9)$"]
       }
     }
   ]

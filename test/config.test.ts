@@ -72,7 +72,7 @@ test("requires groups referenced by targets", () => {
 test("applies latest-lookup defaults to Kubernetes targets and rejects invalid options", () => {
   const kubernetes = { name: "images", label: "Images", type: "kubernetes" };
   const config = validateConfig({ targets: [{ ...kubernetes, latest: {} }] });
-  assert.deepEqual((config.targets[0] as { latest?: unknown }).latest, { every: "6h", concurrency: 4, exclude: [] });
+  assert.deepEqual((config.targets[0] as { latest?: unknown }).latest, { every: "6h", concurrency: 4, exclude: [], ignoreTags: [] });
   assert.equal("latest" in validateConfig({ targets: [kubernetes] }).targets[0], false);
   assert.throws(() => validateConfig({ targets: [{ ...baseConfig.targets[0], latest: {} }] }), /Invalid configuration/);
   assert.throws(

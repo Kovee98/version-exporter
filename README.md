@@ -26,19 +26,33 @@ CA, and reports tags from regular, init, and ephemeral container image reference
 are reported as `latest`. This target needs only the `list` verb on core `pods`; grant it through a
 read-only ClusterRole when running in Kubernetes.
 
-Add `"latest": {}` to a `kubernetes` target to also look up the newest available tag for each running
-image. The exporter lists the image repository's tags through the registry's v2 API (anonymous
-bearer tokens, so Docker Hub, ghcr.io, quay.io, registry.k8s.io and similar public registries work)
-and picks the highest tag with the same shape as the running one: same `v` prefix, same number of
-version components, and same suffix. For example, `16.4-alpine` can resolve to `17.0-alpine`, but not
-to `17` or `17.0-bookworm`. Tags that aren't versions (`latest`, commit hashes) and tags whose suffix
-contains its own version number (`-rc1`, `-ls270`) are skipped. Options:
+Add `"latest": {}` to a `kubernetes` target to also look up the newest available version of each
+running image, using the registry's v2 API with anonymous bearer tokens (Docker Hub, ghcr.io, quay.io,
+registry.k8s.io and similar public registries work):
 
-- `every` (default `6h`) — how long a repository's result is cached before it is looked up again.
+- **Version tags** are compared against the repository's tag list. A tag is reduced to its *shape* —
+  digit runs become `#` and commit-hash segments become `*` — and the highest tag with the same shape
+  wins. So `16.4-alpine` (`#.#-alpine`) can resolve to `17.0-alpine` but never `17`, `17.0-bookworm` or
+  `17.0-rc1-alpine`; `1.41.3-ls270` moves within `#.#.#-ls#`; and `2024.10.22-7ca5933` compares by date
+  while ignoring the hash. Listing starts at the tag's literal prefix (e.g. `last=v`) so repositories
+  with thousands of hash or signature tags stay within the page limit; registries that don't support
+  that get a full listing.
+- **Floating tags** with no numbers (`latest`, `preview-…`) are compared by digest: the digest the
+  node actually pulled (from the pod's container status) against the registry's current digest for
+  that tag (a `HEAD` request, which doesn't count against Docker Hub's pull limit). An up-to-date image
+  reports the tag itself; a stale one reports `<tag>@sha256:<first 12 hex>` of the newer build.
+
+Options:
+
+- `every` (default `6h`) — how long a successful result is cached. Failed lookups (e.g. rate limits,
+  which are also retried with backoff) are retried after at most 10 minutes.
 - `concurrency` (default `4`) — parallel registry lookups.
 - `exclude` (default `[]`) — regular expressions matched against the full image reference; matching
-  images are never looked up. Use this for repositories whose tag history isn't monotonic (e.g.
-  `"linuxserver/qbittorrent"`, which once used Ubuntu-numbered tags like `20.04.1`).
+  images are never looked up.
+- `ignoreTags` (default `[]`) — regular expressions matched against `<registry>/<repository>:<tag>`
+  (Docker Hub images are normalized to `docker.io/library/<name>` or `docker.io/<org>/<name>`); matching
+  candidate tags are never chosen as latest. Use this for repositories with stray legacy tags, e.g.
+  `"linuxserver/qbittorrent:(20\\.04\\.1|14\\.3\\.9)$"`.
 
 Registry lookups need outbound HTTPS access to the registries your images come from.
 

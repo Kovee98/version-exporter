@@ -32,6 +32,7 @@ export interface LatestLookupConfig {
   every: string;
   concurrency: number;
   exclude: string[];
+  ignoreTags: string[];
 }
 
 export interface KubernetesTargetInput extends TargetInputBase {
@@ -83,6 +84,8 @@ export interface VersionResult {
   pod: string;
   container: string;
   image: string;
+  /** Manifest digest the container runtime actually pulled (from pod status), when known. */
+  digest?: string;
 }
 
 export interface HttpRequestOptions {
@@ -109,6 +112,16 @@ export interface KubernetesPod {
     containers?: PodContainer[];
     ephemeralContainers?: PodContainer[];
   };
+  status?: {
+    initContainerStatuses?: PodContainerStatus[];
+    containerStatuses?: PodContainerStatus[];
+    ephemeralContainerStatuses?: PodContainerStatus[];
+  };
+}
+
+export interface PodContainerStatus {
+  name?: string;
+  imageID?: string;
 }
 
 export interface KubernetesPodList {
